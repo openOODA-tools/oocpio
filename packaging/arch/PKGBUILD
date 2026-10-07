@@ -1,0 +1,21 @@
+# Maintainer: openOODA-tools <ops@openooda.org>
+pkgname=oocpio-bin
+_pkgname=oocpio
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Initramfs cpio format unpacker and archiver for Linux kernel boot images."
+arch=('x86_64')
+url="https://github.com/openOODA-tools/oocpio"
+license=('Apache-2.0')
+depends=('glibc')
+provides=('oocpio')
+conflicts=('oocpio')
+source_x86_64=("${url}/releases/download/v${pkgver}/oocpio-linux-x86_64"
+               "uninstall.sh::https://raw.githubusercontent.com/openOODA-tools/${_pkgname}/v${pkgver}/uninstall.sh")
+sha256sums_x86_64=('SKIP'
+                   'SKIP')
+
+package() {
+    install -Dm755 "${srcdir}/oocpio-linux-x86_64" "${pkgdir}/usr/bin/oocpio"
+    install -Dm755 uninstall.sh "${pkgdir}/usr/bin/oocpio-uninstall"
+}
