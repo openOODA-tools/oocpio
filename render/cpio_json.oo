@@ -1,0 +1,62 @@
+// # oocpio JSON Serializer
+//
+// Logline: Formats CPIO archive entries and summaries into structured JSON Lines and payloads.
+//
+// Setup: Bridges internal CpioArchiveSummary and CpioEntry models to compliant JSON representations.
+//
+// Beats:
+//   1. Serialize individual CpioEntry instances to JSON objects.
+//   2. Serialize complete CpioArchiveSummary reports to JSON objects.
+//   3. Stream archive entries as newline-delimited JSON Lines (JSONL).
+//   4. Format inspect metadata for agent tool queries.
+
+import "core/cpio_types.oo";
+import "core/cpio_hex.oo";
+
+pub fn entry_to_json(entry: CpioEntry) -> String {
+    return "{\"tool\":\"oocpio\""
+        + ",\"name\":\"" + entry.name + "\""
+        + ",\"size\":" + to_string(entry.filesize)
+        + ",\"mode\":" + to_string(entry.mode)
+        + ",\"is_directory\":" + (if is_dir_mode(entry.mode) { "true" } else { "false" })
+        + ",\"uid\":" + to_string(entry.uid)
+        + ",\"gid\":" + to_string(entry.gid)
+        + ",\"mtime\":" + to_string(entry.mtime)
+        + ",\"magic\":\"" + entry.magic + "\""
+        + "}";
+}
+
+pub fn summary_to_json(summary: CpioArchiveSummary) -> String {
+    let mut out: String = "{\"tool\":\"oocpio\""
+        + ",\"format\":\"" + summary.format + "\""
+        + ",\"total_entries\":" + to_string(summary.total_entries)
+        + ",\"total_files\":" + to_string(summary.total_files)
+        + ",\"total_dirs\":" + to_string(summary.total_dirs)
+        + ",\"total_bytes\":" + to_string(summary.total_bytes)
+        + ",\"entries\":[";
+
+    let n: Int = list_len(summary.entries);
+    let mut i: Int = 0;
+    while i < n {
+        let entry: CpioEntry = list_get(summary.entries, i);
+        out = out + entry_to_json(entry);
+        if i + 1 < n {
+            out = out + ",";
+        }
+        i = i + 1;
+    }
+    out = out + "]}";
+    return out;
+}
+
+pub fn summary_to_jsonl(summary: CpioArchiveSummary) -> String {
+    let mut out: String = "";
+    let n: Int = list_len(summary.entries);
+    let mut i: Int = 0;
+    while i < n {
+        let entry: CpioEntry = list_get(summary.entries, i);
+        out = out + entry_to_json(entry) + "\n";
+        i = i + 1;
+    }
+    return out;
+}

@@ -1,0 +1,170 @@
+// # Model Context Protocol (MCP) Server for oocpio
+//
+// Logline: JSON-RPC 2.0 stdio server providing sovereign Linux initramfs and SVR4 CPIO archive operations.
+//
+// Setup: Services agent tool invocations over standard input with &FsReadCap and &FsWriteCap.
+//
+// Beats:
+//   1. Handle MCP initialize handshake with server metadata.
+//   2. Expose tools/list catalogue with six sovereign cpio archive tools.
+//   3. Dispatch tools/call for list, extract, create, inspect, demo, and stats.
+//   4. Deliver streaming JSON-RPC responses over standard output.
+
+import "core/cpio_types.oo";
+import "core/cpio_engine.oo";
+import "core/cpio_ops.oo";
+import "core/cpio_demo.oo";
+import "render/cpio_json.oo";
+import "render/cpio_view.oo";
+import "render/cpio_theme.oo";
+import "ipc/json_field.oo";
+
+fn build_error(id: String, code: Int, msg: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":" + to_string(code) + ",\"message\":\"" + json_escape(msg) + "\"}}\n";
+}
+
+fn build_tool_result(id: String, text: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(text) + "\"}]}}\n";
+}
+
+pub fn render_mcp_init(id: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"oocpio\",\"version\":\"0.2.0\"}}}\n";
+}
+
+pub fn render_mcp_tools_list(id: String) -> String {
+    let mut out: String = "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":[";
+    out = out + "{\"name\":\"cpio_list_archive\",\"description\":\"List files, sizes, modes, and metadata inside a CPIO archive.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"archive_path\":{\"type\":\"string\"},\"archive_data\":{\"type\":\"string\"},\"verbose\":{\"type\":\"boolean\"}}}},";
+    out = out + "{\"name\":\"cpio_extract_archive\",\"description\":\"Extract all files from a CPIO archive to a target directory.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"archive_path\":{\"type\":\"string\"},\"archive_data\":{\"type\":\"string\"},\"target_dir\":{\"type\":\"string\"},\"verbose\":{\"type\":\"boolean\"}},\"required\":[\"target_dir\"]}},";
+    out = out + "{\"name\":\"cpio_create_archive\",\"description\":\"Pack listed disk files into an SVR4 newc CPIO archive byte stream.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"files\":{\"type\":\"string\"}},\"required\":[\"files\"]}},";
+    out = out + "{\"name\":\"cpio_inspect_header\",\"description\":\"Inspect cpio archive header magic, format, uncompressed size, and counts.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"archive_path\":{\"type\":\"string\"},\"archive_data\":{\"type\":\"string\"}}}},";
+    out = out + "{\"name\":\"cpio_demo\",\"description\":\"Return synthetic Linux kernel initramfs archive telemetry and entry tree.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},";
+    out = out + "{\"name\":\"cpio_stats\",\"description\":\"Compute file count, directory count, and total byte statistics.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"archive_path\":{\"type\":\"string\"}}}}";
+    out = out + "]}}\n";
+    return out;
+}
+
+pub fn handle_mcp_call(
+    fr: &FsReadCap,
+    fw: &FsWriteCap,
+    id: String,
+    tool_name: String,
+    req: String
+) -> String {
+    let archive_path: String = extract_json_str(req, "archive_path");
+    let mut archive_data: String = extract_json_str(req, "archive_data");
+
+    if chars_len(archive_data) == 0 && chars_len(archive_path) > 0 {
+        if path_exists(fr, archive_path) {
+            let r: Result[String, String] = read_file(fr, archive_path);
+            archive_data = match r { Ok(v) => v, Err(_) => "" };
+        }
+    }
+
+    if tool_name == "cpio_list_archive" {
+        let stream: String = if chars_len(archive_data) > 0 { archive_data } else { build_demo_archive() };
+        let sum: CpioArchiveSummary = decode_cpio_stream(stream);
+        let verbose: Bool = extract_json_bool(req, "verbose", false);
+        let listing: String = render_archive_listing(sum, verbose, get_theme("monochrome"));
+        return build_tool_result(id, listing);
+    }
+
+    if tool_name == "cpio_extract_archive" {
+        let stream: String = if chars_len(archive_data) > 0 { archive_data } else { build_demo_archive() };
+        let sum: CpioArchiveSummary = decode_cpio_stream(stream);
+        let target_dir: String = extract_json_str(req, "target_dir");
+        let verbose: Bool = extract_json_bool(req, "verbose", false);
+        let count: Int = extract_archive(fw, sum, target_dir, verbose);
+        let out: String = "{\"status\":\"extracted\",\"count\":" + to_string(count) + ",\"target_dir\":\"" + target_dir + "\"}";
+        return build_tool_result(id, out);
+    }
+
+    if tool_name == "cpio_create_archive" {
+        let files_str: String = extract_json_str(req, "files");
+        let mut flist: List[String] = list_new();
+        if chars_len(files_str) > 0 {
+            flist = list_push(flist, files_str);
+        }
+        let stream: String = create_archive_from_files(fr, flist);
+        return build_tool_result(id, stream);
+    }
+
+    if tool_name == "cpio_inspect_header" {
+        let stream: String = if chars_len(archive_data) > 0 { archive_data } else { build_demo_archive() };
+        let sum: CpioArchiveSummary = decode_cpio_stream(stream);
+        return build_tool_result(id, summary_to_json(sum));
+    }
+
+    if tool_name == "cpio_demo" {
+        let sum: CpioArchiveSummary = build_demo_summary();
+        return build_tool_result(id, summary_to_json(sum));
+    }
+
+    if tool_name == "cpio_stats" {
+        let stream: String = if chars_len(archive_data) > 0 { archive_data } else { build_demo_archive() };
+        let sum: CpioArchiveSummary = decode_cpio_stream(stream);
+        let out: String = "{\"format\":\"" + sum.format + "\",\"total_entries\":" + to_string(sum.total_entries)
+            + ",\"total_files\":" + to_string(sum.total_files) + ",\"total_bytes\":" + to_string(sum.total_bytes) + "}";
+        return build_tool_result(id, out);
+    }
+
+    return build_error(id, -32601, "Unknown tool: " + tool_name);
+}
+
+pub fn handle_mcp_message(
+    fr: &FsReadCap,
+    fw: &FsWriteCap,
+    req: String
+) -> String {
+    let id_str: String = extract_json_str(req, "id");
+    let id: String = if chars_len(id_str) > 0 { "\"" + id_str + "\"" } else { "1" };
+    let method: String = extract_json_str(req, "method");
+
+    if method == "initialize" {
+        return render_mcp_init(id);
+    }
+    if method == "notifications/initialized" {
+        return "";
+    }
+    if method == "tools/list" {
+        return render_mcp_tools_list(id);
+    }
+    if method == "tools/call" {
+        let tool_name: String = extract_json_str(req, "name");
+        return handle_mcp_call(fr, fw, id, tool_name, req);
+    }
+    if method == "shutdown" {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":null}\n";
+    }
+    return build_error(id, -32601, "Method not found: " + method);
+}
+
+pub fn run_mcp_server(fr: &FsReadCap, fw: &FsWriteCap) {
+    let mut buf: String = "";
+    let mut running: Bool = true;
+    while running {
+        let r: Result[String, String] = oo_read_stdin_chunk(fr, 4096);
+        if !r.is_ok() {
+            running = false;
+        } else {
+            let chunk: String = match r { Ok(s) => s, Err(_) => "" };
+            if chars_len(chunk) == 0 {
+                running = false;
+            } else {
+                buf = buf + chunk;
+                let mut nl_pos: Int = str_index_of(buf, "\n");
+                while nl_pos >= 0 {
+                    let line: String = str_slice(buf, 0, nl_pos);
+                    buf = str_slice(buf, nl_pos + 1, chars_len(buf));
+                    let trimmed: String = str_trim(line);
+                    if chars_len(trimmed) > 0 {
+                        let resp: String = handle_mcp_message(fr, fw, trimmed);
+                        if chars_len(resp) > 0 {
+                            print(resp);
+                        }
+                    }
+                    nl_pos = str_index_of(buf, "\n");
+                }
+            }
+        }
+    }
+}

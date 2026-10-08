@@ -1,0 +1,11 @@
+Package: oocpio
+Version: 0.2.0-1
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: openOODA-tools <ops@openooda.org>
+Depends: libc6
+Description: CPIO ARCHIVE MANAGER
+ Initramfs cpio format unpacker and archiver for Linux kernel boot images.
+ Capability-bounded openOODA utility with zero ambient authority,
+ SVR4 portable newc format, initramfs packing, and native Model Context Protocol (MCP) surface.

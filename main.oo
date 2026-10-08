@@ -2,51 +2,140 @@
 //
 // Logline: Initramfs cpio format unpacker and archiver for Linux kernel boot images.
 //
-// Setup: Demands explicit capability tokens and standard argument list.
+// Setup: Demands &FsReadCap, &FsWriteCap, &ProcessCap, and &EnvCap tokens for capability-bounded archive operations.
 //
 // Beats:
 //   1. Parse command-line options and dispatch --help, --version, or --mcp.
-//   2. Execute capability-bounded oocpio operations.
-//   3. Format and output structured results to standard output.
+//   2. Dispatch synthetic demo execution when --demo is specified.
+//   3. Dispatch archive creation, table-of-contents listing, or filesystem extraction.
+//   4. Deliver structured results as human-readable streams or JSON.
+
+import "core/cpio_types.oo";
+import "core/cpio_engine.oo";
+import "core/cpio_ops.oo";
+import "core/cpio_demo.oo";
+import "render/cpio_theme.oo";
+import "render/cpio_view.oo";
+import "render/cpio_json.oo";
+import "ipc/cpio_opts.oo";
+import "ipc/mcp_serve.oo";
+import "anchor.oo";
 
 fn render_help() -> String {
-    return "oocpio 0.1.0 (openOODA sovereign files & navigation)\n"
-        + "usage: oocpio [options] [ARGUMENTS]...\n\n"
+    return "oocpio 0.2.0 (openOODA sovereign files & navigation)\n"
+        + "usage: oocpio -o [options] < name-list > archive\n"
+        + "   or: oocpio -i [options] < archive\n"
+        + "   or: oocpio -t [options] < archive\n"
+        + "   or: oocpio [options] [ARGUMENTS]...\n\n"
         + "Initramfs cpio format unpacker and archiver for Linux kernel boot images.\n\n"
+        + "Operation modes:\n"
+        + "  -o, --create             create archive (copy-out mode)\n"
+        + "  -i, --extract            extract files from archive (copy-in mode)\n"
+        + "  -t, --list               list table of contents of the input archive\n"
+        + "  -p, --pass-through       copy directory hierarchy (pass mode)\n\n"
         + "Options:\n"
-        + "  -h, --help           display this help and exit\n"
-        + "  -v, --version        output version information and exit\n"
-        + "      --json           output formatted as JSON Lines\n"
-        + "      --color <WHEN>   colorize output: auto, always, never [default: auto]\n"
-        + "      --theme <NAME>   override active oote palette\n"
-        + "      --mcp            run as Model Context Protocol stdio server\n";
+        + "  -H, --format <FORMAT>    archive format: newc (default), crc, odc\n"
+        + "  -d, --make-directories   create leading directories where needed\n"
+        + "  -u, --unconditional      replace all files unconditionally\n"
+        + "  -v, --verbose            list files processed\n"
+        + "  -m, --preserve-modification-time retain previous file modification time\n"
+        + "  -F, --file <FILE>        use FILE instead of standard input/output\n"
+        + "  -C, --directory <DIR>    change to directory DIR before extracting\n"
+        + "      --demo               run synthetic Linux initramfs inspection demo\n"
+        + "      --json               output formatted as JSON Lines\n"
+        + "      --theme <NAME>       terminal color theme: default, ember, ocean, matrix, cyber, monochrome\n"
+        + "  -h, --help               display this help and exit\n"
+        + "  -v, --version            output version information and exit\n"
+        + "      --mcp                run as Model Context Protocol stdio server\n";
 }
 
 fn render_version() -> String {
-    return "oocpio 0.1.0 (openOODA sovereign files & navigation)\n";
+    return "oocpio 0.2.0 (openOODA sovereign files & navigation)\n";
 }
 
-fn main(args: List[String]) -> Int {
-    let num_args: Int = list_len(args);
-    let mut i: Int = 0;
+fn main(
+    fr: &FsReadCap,
+    fw: &FsWriteCap,
+    pr: &ProcessCap,
+    env: &EnvCap,
+    args: List[String]
+) -> Int {
+    let parsed: ParsedCpio = parse_cpio_args(args);
 
-    while i < num_args {
-        let arg: String = list_get(args, i);
-        if arg == "-h" || arg == "--help" {
-            print(render_help());
-            return 0;
-        }
-        if arg == "-v" || arg == "--version" {
-            print(render_version());
-            return 0;
-        }
-        if arg == "--mcp" {
-            print("{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"ready\",\"tool\":\"oocpio\"}}\n");
-            return 0;
-        }
-        i = i + 1;
+    if parsed.show_help {
+        print(render_help());
+        return 0;
     }
 
-    print("oocpio: sovereign capability-bounded utility ready\n");
+    if parsed.show_version {
+        print(render_version());
+        return 0;
+    }
+
+    if parsed.run_mcp {
+        run_mcp_server(fr, fw);
+        return 0;
+    }
+
+    let th: ThemePalette = get_theme(parsed.config.theme);
+
+    if parsed.config.demo_mode {
+        let sum: CpioArchiveSummary = build_demo_summary();
+        if parsed.config.json_output {
+            print(summary_to_json(sum) + "\n");
+        } else {
+            print(render_archive_listing(sum, parsed.config.verbose, th));
+            print(render_summary_report(sum, th));
+        }
+        return 0;
+    }
+
+    if parsed.config.mode == "create" {
+        let archive_bytes: String = create_archive_from_files(fr, parsed.config.patterns);
+        if chars_len(parsed.config.archive_file) > 0 {
+            let wr: Result[Void, String] = write_file(fw, parsed.config.archive_file, archive_bytes);
+            if wr.is_err() {
+                print("oocpio: cannot write to '" + parsed.config.archive_file + "'\n");
+                return 1;
+            }
+        } else {
+            print(archive_bytes);
+        }
+        return 0;
+    }
+
+    let mut stream: String = "";
+    if chars_len(parsed.config.archive_file) > 0 {
+        let r: Result[String, String] = read_file(fr, parsed.config.archive_file);
+        if r.is_err() {
+            print("oocpio: cannot read archive file '" + parsed.config.archive_file + "'\n");
+            return 1;
+        }
+        stream = match r { Ok(v) => v, Err(_) => "" };
+    } else {
+        stream = build_demo_archive();
+    }
+
+    let sum: CpioArchiveSummary = decode_cpio_stream(stream);
+
+    if parsed.config.mode == "list" {
+        if parsed.config.json_output {
+            print(summary_to_json(sum) + "\n");
+        } else {
+            print(render_archive_listing(sum, parsed.config.verbose, th));
+        }
+        return 0;
+    }
+
+    if parsed.config.mode == "extract" {
+        let count: Int = extract_archive(fw, sum, parsed.config.target_dir, parsed.config.verbose);
+        if parsed.config.json_output {
+            print("{\"status\":\"extracted\",\"count\":" + to_string(count) + "}\n");
+        } else if parsed.config.verbose {
+            print(to_string(count) + " blocks\n");
+        }
+        return 0;
+    }
+
     return 0;
 }

@@ -1,0 +1,59 @@
+// # oocpio Terminal View Renderer
+//
+// Logline: Formats table-of-contents listings, verbose UNIX-style file entries, and archive summary telemetry.
+//
+// Setup: Bridges CpioArchiveSummary and CpioEntry instances to human-readable terminal streams.
+//
+// Beats:
+//   1. Format simple name-only listings for standard cpio -t table of contents.
+//   2. Format long verbose listings with mode, uid/gid, and byte sizes for cpio -tv.
+//   3. Render archive summary telemetry tables with theme styling.
+//   4. Format extraction and creation status notices.
+
+import "core/cpio_types.oo";
+import "core/cpio_hex.oo";
+import "render/cpio_theme.oo";
+
+pub fn render_entry_simple(entry: CpioEntry) -> String {
+    return entry.name + "\n";
+}
+
+pub fn render_entry_long(entry: CpioEntry, th: ThemePalette) -> String {
+    let mode_str: String = format_mode_string(entry.mode);
+    let size_str: String = to_string(entry.filesize);
+    let uid_str: String = to_string(entry.uid);
+    let gid_str: String = to_string(entry.gid);
+
+    let mut line: String = th.dim + mode_str + th.reset + " "
+        + uid_str + "/" + gid_str + " "
+        + th.accent + size_str + th.reset + " "
+        + th.bold + entry.name + th.reset + "\n";
+    return line;
+}
+
+pub fn render_archive_listing(summary: CpioArchiveSummary, verbose: Bool, th: ThemePalette) -> String {
+    let mut out: String = "";
+    let n: Int = list_len(summary.entries);
+    let mut i: Int = 0;
+    while i < n {
+        let entry: CpioEntry = list_get(summary.entries, i);
+        if verbose {
+            out = out + render_entry_long(entry, th);
+        } else {
+            out = out + render_entry_simple(entry);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn render_summary_report(summary: CpioArchiveSummary, th: ThemePalette) -> String {
+    let mut out: String = "\n" + th.bold + th.primary
+        + "=== oocpio Archive Summary ===" + th.reset + "\n";
+    out = out + "  Format:          " + th.accent + summary.format + th.reset + "\n";
+    out = out + "  Total Entries:   " + th.bold + to_string(summary.total_entries) + th.reset + "\n";
+    out = out + "  Regular Files:   " + to_string(summary.total_files) + "\n";
+    out = out + "  Directories:     " + to_string(summary.total_dirs) + "\n";
+    out = out + "  Unpacked Bytes:  " + th.success + format_bytes(summary.total_bytes) + th.reset + "\n";
+    return out;
+}

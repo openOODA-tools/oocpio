@@ -1,5 +1,5 @@
 Name:           oocpio
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Initramfs cpio format unpacker and archiver for Linux kernel boot images.
 License:        ASL 2.0
@@ -10,9 +10,9 @@ BuildArch:      x86_64
 Requires:       glibc
 
 %description
-oocpio is a sovereign, capability-bounded CPIO PACKER written
+oocpio is a sovereign, capability-bounded CPIO ARCHIVE MANAGER written
 in pure openOODA, featuring zero ambient authority, oote color themes,
-and an MCP stdio server.
+SVR4 newc initramfs packaging, and an MCP stdio server.
 
 %install
 mkdir -p %{buildroot}/usr/bin
@@ -24,5 +24,5 @@ install -m 0755 %{SOURCE1} %{buildroot}/usr/bin/oocpio-uninstall
 /usr/bin/oocpio-uninstall
 
 %changelog
-* Wed Oct 07 2026 openOODA-tools <ops@openooda.org> - 0.1.0-1
-- Initial sovereign blueprint scaffolding
+* Wed Oct 07 2026 openOODA-tools <ops@openooda.org> - 0.2.0-1
+- Sovereign pure openOODA implementation with initramfs archive support and MCP surface

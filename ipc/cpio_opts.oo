@@ -1,0 +1,122 @@
+// # oocpio CLI Options Parser
+//
+// Logline: Robust argument parser mapping POSIX cpio flags and GNU/SVR4 extensions to CpioConfig.
+//
+// Setup: Parses raw String arguments into structured options with capability safety.
+//
+// Beats:
+//   1. Declare ParsedCpio container holding CpioConfig and dispatch flags.
+//   2. Process mode flags (-o create, -i extract, -t list, -p pass).
+//   3. Extract archive file targets, format selectors, and directory overrides.
+//   4. Collect positional pattern arguments for selective extraction or listing.
+
+import "core/cpio_types.oo";
+
+type ParsedCpio = struct {
+    config: CpioConfig,
+    show_help: Bool,
+    show_version: Bool,
+    run_mcp: Bool,
+    parse_error: String
+};
+
+pub fn parse_cpio_args(args: List[String]) -> ParsedCpio {
+    let mut cfg: CpioConfig = default_cpio_config();
+    let mut show_help: Bool = false;
+    let mut show_version: Bool = false;
+    let mut run_mcp: Bool = false;
+    let mut parse_error: String = "";
+
+    let num_args: Int = list_len(args);
+    let mut i: Int = 0;
+    while i < num_args {
+        let arg: String = list_get(args, i);
+        if arg == "-h" || arg == "--help" {
+            show_help = true;
+        } else if arg == "--version" {
+            show_version = true;
+        } else if arg == "--mcp" {
+            run_mcp = true;
+        } else if arg == "-o" || arg == "--create" {
+            cfg.mode = "create";
+        } else if arg == "-i" || arg == "--extract" {
+            cfg.mode = "extract";
+        } else if arg == "-t" || arg == "--list" {
+            cfg.mode = "list";
+        } else if arg == "-p" || arg == "--pass-through" {
+            cfg.mode = "pass";
+        } else if arg == "-d" || arg == "--make-directories" {
+            cfg.make_dirs = true;
+        } else if arg == "-u" || arg == "--unconditional" {
+            cfg.unconditional = true;
+        } else if arg == "-v" || arg == "--verbose" {
+            cfg.verbose = true;
+        } else if arg == "-m" || arg == "--preserve-modification-time" {
+            cfg.preserve_mtime = true;
+        } else if arg == "--demo" {
+            cfg.demo_mode = true;
+        } else if arg == "--json" {
+            cfg.json_output = true;
+        } else if arg == "-H" || arg == "--format" {
+            if i + 1 < num_args {
+                i = i + 1;
+                cfg.format = list_get(args, i);
+            }
+        } else if str_starts_with(arg, "--format=") {
+            cfg.format = str_slice(arg, 9, chars_len(arg));
+        } else if arg == "-F" || arg == "--file" {
+            if i + 1 < num_args {
+                i = i + 1;
+                cfg.archive_file = list_get(args, i);
+            }
+        } else if str_starts_with(arg, "--file=") {
+            cfg.archive_file = str_slice(arg, 7, chars_len(arg));
+        } else if arg == "-C" || arg == "--directory" {
+            if i + 1 < num_args {
+                i = i + 1;
+                cfg.target_dir = list_get(args, i);
+            }
+        } else if arg == "--theme" {
+            if i + 1 < num_args {
+                i = i + 1;
+                cfg.theme = list_get(args, i);
+            }
+        } else if str_starts_with(arg, "-") && chars_len(arg) > 1 {
+            // Process bundled short flags like -itv or -ov
+            let flen: Int = chars_len(arg);
+            let mut fi: Int = 1;
+            while fi < flen {
+                let fc: String = char_at(arg, fi);
+                if fc == "o" {
+                    cfg.mode = "create";
+                } else if fc == "i" {
+                    cfg.mode = "extract";
+                } else if fc == "t" {
+                    cfg.mode = "list";
+                } else if fc == "p" {
+                    cfg.mode = "pass";
+                } else if fc == "d" {
+                    cfg.make_dirs = true;
+                } else if fc == "u" {
+                    cfg.unconditional = true;
+                } else if fc == "v" {
+                    cfg.verbose = true;
+                } else if fc == "m" {
+                    cfg.preserve_mtime = true;
+                }
+                fi = fi + 1;
+            }
+        } else {
+            cfg.patterns = list_push(cfg.patterns, arg);
+        }
+        i = i + 1;
+    }
+
+    return ParsedCpio {
+        config: cfg,
+        show_help: show_help,
+        show_version: show_version,
+        run_mcp: run_mcp,
+        parse_error: parse_error
+    };
+}

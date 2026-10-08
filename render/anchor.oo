@@ -1,0 +1,82 @@
+// # oocpio Render Verification Anchor
+//
+// Logline: Deterministic unit tests verifying theme palettes, byte formatters, and JSON serialization.
+//
+// Setup: Pure test execution verifying rendering and formatting invariants.
+//
+// Beats:
+//   1. Verify theme palette resolution and monochrome fallback behavior.
+//   2. Verify byte size human formatting logic across unit boundaries.
+//   3. Verify archive listing view outputs.
+//   4. Verify JSON and JSON Lines serialization output.
+
+import "core/cpio_types.oo";
+import "core/cpio_demo.oo";
+import "render/cpio_theme.oo";
+import "render/cpio_view.oo";
+import "render/cpio_json.oo";
+
+pub fn test_render_themes() -> Bool {
+    let t_def: ThemePalette = get_theme("default");
+    if chars_len(t_def.primary) == 0 {
+        return false;
+    }
+    let t_mono: ThemePalette = get_theme("monochrome");
+    if chars_len(t_mono.primary) != 0 {
+        return false;
+    }
+    let t_emb: ThemePalette = get_theme("ember");
+    if chars_len(t_emb.primary) == 0 {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_render_formatters() -> Bool {
+    let b1: String = format_bytes(512);
+    if b1 != "512 B" {
+        return false;
+    }
+    let b2: String = format_bytes(4096);
+    if b2 != "4 KB" {
+        return false;
+    }
+    let b3: String = format_bytes(20971520);
+    if b3 != "20 MB" {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_render_json() -> Bool {
+    let s: CpioArchiveSummary = build_demo_summary();
+    let json: String = summary_to_json(s);
+    if !str_contains(json, "\"tool\":\"oocpio\"") {
+        return false;
+    }
+    if !str_contains(json, "\"total_entries\":7") {
+        return false;
+    }
+    let jsonl: String = summary_to_jsonl(s);
+    if !str_contains(jsonl, "\"name\":\"init\"") {
+        return false;
+    }
+    let listing: String = render_archive_listing(s, false, get_theme("default"));
+    if !str_contains(listing, "init\n") {
+        return false;
+    }
+    return true;
+}
+
+pub fn run_render_tests() -> Bool {
+    if !test_render_themes() {
+        return false;
+    }
+    if !test_render_formatters() {
+        return false;
+    }
+    if !test_render_json() {
+        return false;
+    }
+    return true;
+}

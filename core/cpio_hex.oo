@@ -1,0 +1,100 @@
+// # oocpio Hex & Numeric Translation Subsystem
+//
+// Logline: Robust ASCII hexadecimal parsing, 8-character field formatting, and octal mode decoding.
+//
+// Setup: Pure string manipulation routines without external dependencies.
+//
+// Beats:
+//   1. Convert single ASCII hexadecimal characters to numeric values.
+//   2. Parse bounded hexadecimal slices into 64-bit integer values.
+//   3. Format numeric values into 8-character zero-padded uppercase/lowercase hex strings.
+//   4. Format UNIX permission modes into standard POSIX ls-style strings.
+
+pub fn hex_nibble(ch: Int) -> Int {
+    if ch >= 48 && ch <= 57 {
+        return ch - 48;
+    }
+    if ch >= 97 && ch <= 102 {
+        return ch - 97 + 10;
+    }
+    if ch >= 65 && ch <= 70 {
+        return ch - 65 + 10;
+    }
+    return 0;
+}
+
+pub fn parse_hex_slice(s: String, start: Int, length: Int) -> Int {
+    let mut val: Int = 0;
+    let end: Int = start + length;
+    let mut i: Int = start;
+    let n: Int = chars_len(s);
+    while i < end && i < n {
+        let ch: Int = byte_at(s, i);
+        val = (val * 16) + hex_nibble(ch);
+        i = i + 1;
+    }
+    return val;
+}
+
+pub fn parse_hex(s: String) -> Int {
+    return parse_hex_slice(s, 0, chars_len(s));
+}
+
+fn nibble_to_hex_char(n: Int) -> String {
+    let clamped: Int = n % 16;
+    if clamped < 10 {
+        return bytes_to_str(bytes_push(bytes_new(), 48 + clamped));
+    }
+    return bytes_to_str(bytes_push(bytes_new(), 87 + clamped));
+}
+
+pub fn format_hex8(val: Int) -> String {
+    let mut s: String = "";
+    let mut cur: Int = val;
+    let mut count: Int = 0;
+    while count < 8 {
+        let nibble: Int = cur % 16;
+        s = nibble_to_hex_char(nibble) + s;
+        cur = cur / 16;
+        count = count + 1;
+    }
+    return s;
+}
+
+pub fn is_dir_mode(mode: Int) -> Bool {
+    // 0x4000 = 16384 (S_IFDIR)
+    let shifted: Int = mode / 4096;
+    return (shifted % 8) == 4;
+}
+
+pub fn is_reg_mode(mode: Int) -> Bool {
+    // 0x8000 = 32768 (S_IFREG)
+    let shifted: Int = mode / 4096;
+    return (shifted % 16) == 8;
+}
+
+pub fn format_mode_string(mode: Int) -> String {
+    let mut s: String = "";
+    if is_dir_mode(mode) {
+        s = "d";
+    } else {
+        s = "-";
+    }
+
+    // Owner rwx
+    s = s + (if (mode / 256) % 2 == 1 { "r" } else { "-" });
+    s = s + (if (mode / 128) % 2 == 1 { "w" } else { "-" });
+    s = s + (if (mode / 64) % 2 == 1 { "x" } else { "-" });
+
+    // Group rwx
+    s = s + (if (mode / 32) % 2 == 1 { "r" } else { "-" });
+    s = s + (if (mode / 16) % 2 == 1 { "w" } else { "-" });
+    s = s + (if (mode / 8) % 2 == 1 { "x" } else { "-" });
+
+    // Other rwx
+    s = s + (if (mode / 4) % 2 == 1 { "r" } else { "-" });
+    s = s + (if (mode / 2) % 2 == 1 { "w" } else { "-" });
+    s = s + (if mode % 2 == 1 { "x" } else { "-" });
+
+    return s;
+}

@@ -1,0 +1,154 @@
+// # oocpio Archive Stream Engine
+//
+// Logline: Bit-accurate SVR4 newc CPIO stream encoder, decoder, and 4-byte padding alignment engine.
+//
+// Setup: Demands no ambient authority; operates directly over memory byte streams.
+//
+// Beats:
+//   1. Encode individual CpioEntry instances into 110-byte ASCII hex headers with 4-byte padding.
+//   2. Encode TRAILER!!! sentinel marking the clean termination of an archive stream.
+//   3. Decode arbitrary cpio byte streams into structured CpioArchiveSummary records.
+//   4. Calculate 4-byte alignment offsets for name headers and data payloads.
+
+import "core/cpio_types.oo";
+import "core/cpio_hex.oo";
+
+fn pad_zeros(count: Int) -> String {
+    let mut s: String = "";
+    let mut i: Int = 0;
+    while i < count {
+        s = s + bytes_to_str(bytes_push(bytes_new(), 0));
+        i = i + 1;
+    }
+    return s;
+}
+
+pub fn encode_cpio_entry(entry: CpioEntry) -> String {
+    let nlen: Int = chars_len(entry.name) + 1;
+    let dlen: Int = chars_len(entry.data);
+
+    let mut hdr: String = entry.magic;
+    hdr = hdr + format_hex8(entry.ino);
+    hdr = hdr + format_hex8(entry.mode);
+    hdr = hdr + format_hex8(entry.uid);
+    hdr = hdr + format_hex8(entry.gid);
+    hdr = hdr + format_hex8(entry.nlink);
+    hdr = hdr + format_hex8(entry.mtime);
+    hdr = hdr + format_hex8(dlen);
+    hdr = hdr + format_hex8(entry.dev_maj);
+    hdr = hdr + format_hex8(entry.dev_min);
+    hdr = hdr + format_hex8(entry.rdev_maj);
+    hdr = hdr + format_hex8(entry.rdev_min);
+    hdr = hdr + format_hex8(nlen);
+    hdr = hdr + format_hex8(0);
+
+    let name_nul: String = entry.name + bytes_to_str(bytes_push(bytes_new(), 0));
+    let pad1_len: Int = (4 - ((110 + nlen) % 4)) % 4;
+    let pad1: String = pad_zeros(pad1_len);
+
+    let pad2_len: Int = (4 - (dlen % 4)) % 4;
+    let pad2: String = pad_zeros(pad2_len);
+
+    return hdr + name_nul + pad1 + entry.data + pad2;
+}
+
+pub fn encode_trailer() -> String {
+    let tr: CpioEntry = CpioEntry {
+        magic: "070701",
+        ino: 0,
+        mode: 0,
+        uid: 0,
+        gid: 0,
+        nlink: 1,
+        mtime: 0,
+        filesize: 0,
+        dev_maj: 0,
+        dev_min: 0,
+        rdev_maj: 0,
+        rdev_min: 0,
+        name: "TRAILER!!!",
+        data: ""
+    };
+    return encode_cpio_entry(tr);
+}
+
+pub fn decode_cpio_stream(stream: String) -> CpioArchiveSummary {
+    let mut sum: CpioArchiveSummary = empty_archive_summary();
+    let total_len: Int = chars_len(stream);
+    let mut pos: Int = 0;
+
+    while pos + 110 <= total_len {
+        let magic: String = str_slice(stream, pos, pos + 6);
+        if magic != "070701" && magic != "070702" && magic != "070707" {
+            break;
+        }
+        sum.format = if magic == "070702" { "crc" } else { "newc" };
+
+        let ino: Int = parse_hex_slice(stream, pos + 6, 8);
+        let mode: Int = parse_hex_slice(stream, pos + 14, 8);
+        let uid: Int = parse_hex_slice(stream, pos + 22, 8);
+        let gid: Int = parse_hex_slice(stream, pos + 30, 8);
+        let nlink: Int = parse_hex_slice(stream, pos + 38, 8);
+        let mtime: Int = parse_hex_slice(stream, pos + 46, 8);
+        let filesize: Int = parse_hex_slice(stream, pos + 54, 8);
+        let dev_maj: Int = parse_hex_slice(stream, pos + 62, 8);
+        let dev_min: Int = parse_hex_slice(stream, pos + 70, 8);
+        let rdev_maj: Int = parse_hex_slice(stream, pos + 78, 8);
+        let rdev_min: Int = parse_hex_slice(stream, pos + 86, 8);
+        let namesize: Int = parse_hex_slice(stream, pos + 94, 8);
+
+        pos = pos + 110;
+        if pos + namesize > total_len {
+            break;
+        }
+
+        let raw_name: String = str_slice(stream, pos, pos + namesize);
+        let mut name: String = raw_name;
+        if str_ends_with(name, bytes_to_str(bytes_push(bytes_new(), 0))) {
+            name = str_slice(name, 0, chars_len(name) - 1);
+        }
+
+        if name == "TRAILER!!!" {
+            break;
+        }
+
+        let pad1: Int = (4 - ((110 + namesize) % 4)) % 4;
+        pos = pos + namesize + pad1;
+
+        if pos + filesize > total_len {
+            break;
+        }
+
+        let data: String = str_slice(stream, pos, pos + filesize);
+        let pad2: Int = (4 - (filesize % 4)) % 4;
+        pos = pos + filesize + pad2;
+
+        let entry: CpioEntry = CpioEntry {
+            magic: magic,
+            ino: ino,
+            mode: mode,
+            uid: uid,
+            gid: gid,
+            nlink: nlink,
+            mtime: mtime,
+            filesize: filesize,
+            dev_maj: dev_maj,
+            dev_min: dev_min,
+            rdev_maj: rdev_maj,
+            rdev_min: rdev_min,
+            name: name,
+            data: data
+        };
+
+        sum.entries = list_push(sum.entries, entry);
+        sum.total_entries = sum.total_entries + 1;
+        sum.total_bytes = sum.total_bytes + filesize;
+        if is_dir_mode(mode) {
+            sum.total_dirs = sum.total_dirs + 1;
+        } else {
+            sum.total_files = sum.total_files + 1;
+        }
+    }
+
+    return sum;
+}

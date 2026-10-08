@@ -1,0 +1,161 @@
+// # oocpio Filesystem Operations
+//
+// Logline: Path traversal sanitization, archive extraction, and directory tree packager.
+//
+// Setup: Demands &FsReadCap for archive creation and &FsWriteCap for extraction mutation.
+//
+// Beats:
+//   1. Sanitize archive entry paths to prevent directory breakout and traversal attacks.
+//   2. Extract regular files and directory structures with parent hierarchy synthesis.
+//   3. Pack disk files and directory hierarchies into cpio byte stream format.
+//   4. Ensure safe path composition and directory existence.
+
+import "core/cpio_types.oo";
+import "core/cpio_hex.oo";
+import "core/cpio_engine.oo";
+
+pub fn sanitize_path(raw: String) -> String {
+    let mut p: String = raw;
+    while str_starts_with(p, "/") {
+        p = str_slice(p, 1, chars_len(p));
+    }
+    while str_starts_with(p, "./") {
+        p = str_slice(p, 2, chars_len(p));
+    }
+    // Neutralize directory breakout attempts
+    let mut clean: String = "";
+    let n: Int = chars_len(p);
+    let mut i: Int = 0;
+    while i < n {
+        if i + 3 <= n && str_slice(p, i, i + 3) == "../" {
+            i = i + 3;
+        } else if i + 3 <= n && str_slice(p, i, i + 3) == "..\\" {
+            i = i + 3;
+        } else {
+            clean = clean + str_slice(p, i, i + 1);
+            i = i + 1;
+        }
+    }
+    if clean == ".." || clean == "." {
+        return "";
+    }
+    return clean;
+}
+
+pub fn path_join(base: String, child: String) -> String {
+    if chars_len(base) == 0 || base == "." {
+        return child;
+    }
+    if str_ends_with(base, "/") {
+        return base + child;
+    }
+    return base + "/" + child;
+}
+
+pub fn path_dirname(path: String) -> String {
+    let n: Int = chars_len(path);
+    let mut i: Int = n - 1;
+    while i >= 0 {
+        if char_at(path, i) == "/" {
+            if i == 0 {
+                return "/";
+            }
+            return str_slice(path, 0, i);
+        }
+        i = i - 1;
+    }
+    return ".";
+}
+
+pub fn ensure_parent_dirs(fw: &FsWriteCap, file_path: String) -> Result[Void, String] {
+    let dir: String = path_dirname(file_path);
+    if dir == "." || dir == "" || dir == "/" {
+        return Ok(());
+    }
+    let n: Int = chars_len(dir);
+    let mut acc: String = "";
+    let mut i: Int = 0;
+    if char_at(dir, 0) == "/" {
+        acc = "/";
+        i = 1;
+    }
+    while i < n {
+        let c: String = char_at(dir, i);
+        if c == "/" {
+            if chars_len(acc) > 0 && acc != "/" {
+                let _ = oo_fs_mkdir(fw, acc);
+            }
+            if !str_ends_with(acc, "/") {
+                acc = acc + "/";
+            }
+        } else {
+            acc = acc + c;
+        }
+        i = i + 1;
+    }
+    if chars_len(acc) > 0 && acc != "/" {
+        let _ = oo_fs_mkdir(fw, acc);
+    }
+    return oo_fs_mkdir(fw, dir);
+}
+
+pub fn extract_archive(
+    fw: &FsWriteCap,
+    summary: CpioArchiveSummary,
+    target_dir: String,
+    verbose: Bool
+) -> Int {
+    let n: Int = list_len(summary.entries);
+    let mut extracted: Int = 0;
+    let mut i: Int = 0;
+
+    while i < n {
+        let entry: CpioEntry = list_get(summary.entries, i);
+        let safe_name: String = sanitize_path(entry.name);
+        if chars_len(safe_name) > 0 {
+            let full_path: String = path_join(target_dir, safe_name);
+            if is_dir_mode(entry.mode) {
+                let _ = ensure_parent_dirs(fw, full_path + "/child");
+                let _ = oo_fs_mkdir(fw, full_path);
+            } else {
+                let _ = ensure_parent_dirs(fw, full_path);
+                let _ = write_file(fw, full_path, entry.data);
+            }
+            if verbose {
+                print(safe_name + "\n");
+            }
+            extracted = extracted + 1;
+        }
+        i = i + 1;
+    }
+    return extracted;
+}
+
+pub fn create_archive_from_files(
+    fr: &FsReadCap,
+    filenames: List[String]
+) -> String {
+    let mut archive: String = "";
+    let n: Int = list_len(filenames);
+    let mut i: Int = 0;
+
+    while i < n {
+        let fname: String = list_get(filenames, i);
+        if path_exists(fr, fname) {
+            let is_dir: Bool = oo_fs_is_dir(fr, fname);
+            let mode: Int = if is_dir { 16877 } else { 33188 }; // 0040755 vs 0100644
+            let data: String = if is_dir {
+                ""
+            } else {
+                let r: Result[String, String] = read_file(fr, fname);
+                match r { Ok(v) => v, Err(_) => "" }
+            };
+            let entry: CpioEntry = make_cpio_entry(fname, data, mode, i + 1, 0, 0, 1791331200);
+            archive = archive + encode_cpio_entry(entry);
+        }
+        i = i + 1;
+    }
+
+    archive = archive + encode_trailer();
+    return archive;
+}

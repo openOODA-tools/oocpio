@@ -1,0 +1,181 @@
+// # oocpio JSON Field Utilities
+//
+// Logline: Minimalist string-based JSON extractor and serializer for IPC and MCP stdio protocols.
+//
+// Setup: Pure string manipulation routines without external dependencies.
+//
+// Beats:
+//   1. Escape strings for compliant JSON representation.
+//   2. Unescape JSON escape sequences including control characters.
+//   3. Extract string and integer field values by key name.
+//   4. Extract boolean field values by key name.
+
+pub fn json_escape(s: String) -> String {
+    let mut out: String = "";
+    let n: Int = chars_len(s);
+    let mut i: Int = 0;
+    while i < n {
+        let ch: Int = byte_at(s, i);
+        if ch == 34 {
+            out = out + "\\\"";
+        } else if ch == 92 {
+            out = out + "\\\\";
+        } else if ch == 8 {
+            out = out + "\\b";
+        } else if ch == 10 {
+            out = out + "\\n";
+        } else if ch == 13 {
+            out = out + "\\r";
+        } else if ch == 9 {
+            out = out + "\\t";
+        } else {
+            out = out + str_slice(s, i, i + 1);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn json_unescape(s: String) -> String {
+    let mut out: String = "";
+    let n: Int = chars_len(s);
+    let mut i: Int = 0;
+    while i < n {
+        let ch: Int = byte_at(s, i);
+        if ch == 92 && i + 1 < n {
+            let next_ch: Int = byte_at(s, i + 1);
+            if next_ch == 98 {
+                out = out + bytes_to_str(bytes_push(bytes_new(), 8));
+                i = i + 2;
+            } else if next_ch == 110 {
+                out = out + "\n";
+                i = i + 2;
+            } else if next_ch == 114 {
+                out = out + "\r";
+                i = i + 2;
+            } else if next_ch == 116 {
+                out = out + "\t";
+                i = i + 2;
+            } else if next_ch == 34 {
+                out = out + "\"";
+                i = i + 2;
+            } else if next_ch == 92 {
+                out = out + "\\";
+                i = i + 2;
+            } else {
+                out = out + str_slice(s, i, i + 1);
+                i = i + 1;
+            }
+        } else {
+            out = out + str_slice(s, i, i + 1);
+            i = i + 1;
+        }
+    }
+    return out;
+}
+
+pub fn extract_json_str(payload: String, key: String) -> String {
+    let needle: String = "\"" + key + "\":\"";
+    if !str_contains(payload, needle) {
+        let space_needle: String = "\"" + key + "\": \"";
+        if !str_contains(payload, space_needle) {
+            return "";
+        }
+        let full_len: Int = chars_len(payload);
+        let klen: Int = chars_len(space_needle);
+        let mut i: Int = 0;
+        while i <= full_len - klen {
+            if str_slice(payload, i, i + klen) == space_needle {
+                let start: Int = i + klen;
+                let mut end: Int = start;
+                while end < full_len {
+                    if byte_at(payload, end) == 92 {
+                        end = end + 2;
+                    } else if byte_at(payload, end) == 34 {
+                        break;
+                    } else {
+                        end = end + 1;
+                    }
+                }
+                return json_unescape(str_slice(payload, start, end));
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+    let full_len: Int = chars_len(payload);
+    let klen: Int = chars_len(needle);
+    let mut i: Int = 0;
+    while i <= full_len - klen {
+        if str_slice(payload, i, i + klen) == needle {
+            let start: Int = i + klen;
+            let mut end: Int = start;
+            while end < full_len {
+                if byte_at(payload, end) == 92 {
+                    end = end + 2;
+                } else if byte_at(payload, end) == 34 {
+                    break;
+                } else {
+                    end = end + 1;
+                }
+            }
+            return json_unescape(str_slice(payload, start, end));
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+pub fn parse_int(s: String, default_val: Int) -> Int {
+    let n: Int = chars_len(s);
+    if n == 0 {
+        return default_val;
+    }
+    let mut num: Int = 0;
+    let mut has_digit: Bool = false;
+    let mut i: Int = 0;
+    while i < n {
+        let ch: Int = byte_at(s, i);
+        if ch >= 48 && ch <= 57 {
+            num = (num * 10) + (ch - 48);
+            has_digit = true;
+        } else if has_digit {
+            break;
+        }
+        i = i + 1;
+    }
+    if !has_digit {
+        return default_val;
+    }
+    return num;
+}
+
+pub fn extract_json_int(payload: String, key: String, default_val: Int) -> Int {
+    let val_str: String = extract_json_str(payload, key);
+    if chars_len(val_str) > 0 {
+        return parse_int(val_str, default_val);
+    }
+    let needle: String = "\"" + key + "\":";
+    let pos: Int = str_index_of(payload, needle);
+    if pos >= 0 {
+        let after: String = str_slice(payload, pos + chars_len(needle), chars_len(payload));
+        return parse_int(after, default_val);
+    }
+    return default_val;
+}
+
+pub fn extract_json_bool(payload: String, key: String, default_val: Bool) -> Bool {
+    let needle: String = "\"" + key + "\":";
+    let pos: Int = str_index_of(payload, needle);
+    if pos < 0 {
+        return default_val;
+    }
+    let after: String = str_trim(str_slice(payload, pos + chars_len(needle), chars_len(payload)));
+    if str_starts_with(after, "true") {
+        return true;
+    }
+    if str_starts_with(after, "false") {
+        return false;
+    }
+    return default_val;
+}

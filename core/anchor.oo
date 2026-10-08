@@ -1,0 +1,80 @@
+// # oocpio Core Verification Anchor
+//
+// Logline: Deterministic unit tests verifying hex translation, SVR4 encoding, and stream decoding.
+//
+// Setup: Pure test execution verifying core domain invariants without external authority.
+//
+// Beats:
+//   1. Verify hex parsing and 8-character formatting accuracy.
+//   2. Verify path sanitization preventing directory breakouts.
+//   3. Verify encoding and decoding roundtrip of SVR4 newc archives.
+//   4. Export test harness runner.
+
+import "core/cpio_types.oo";
+import "core/cpio_hex.oo";
+import "core/cpio_engine.oo";
+import "core/cpio_ops.oo";
+import "core/cpio_demo.oo";
+
+pub fn test_hex_conversion() -> Bool {
+    let h1: String = format_hex8(255);
+    if h1 != "000000ff" {
+        return false;
+    }
+    let p1: Int = parse_hex("000000ff");
+    if p1 != 255 {
+        return false;
+    }
+    let p2: Int = parse_hex_slice("magic00001000end", 5, 8);
+    if p2 != 4096 {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_path_sanitization() -> Bool {
+    let s1: String = sanitize_path("/etc/passwd");
+    if s1 != "etc/passwd" {
+        return false;
+    }
+    let s2: String = sanitize_path("../../../etc/shadow");
+    if s2 != "etc/shadow" {
+        return false;
+    }
+    let s3: String = sanitize_path("./usr/bin/oosh");
+    if s3 != "usr/bin/oosh" {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_archive_roundtrip() -> Bool {
+    let demo_stream: String = build_demo_archive();
+    let sum: CpioArchiveSummary = decode_cpio_stream(demo_stream);
+    if sum.total_entries != 7 {
+        return false;
+    }
+    if sum.total_files != 4 {
+        return false;
+    }
+    if sum.total_dirs != 3 {
+        return false;
+    }
+    if sum.format != "newc" {
+        return false;
+    }
+    return true;
+}
+
+pub fn run_core_tests() -> Bool {
+    if !test_hex_conversion() {
+        return false;
+    }
+    if !test_path_sanitization() {
+        return false;
+    }
+    if !test_archive_roundtrip() {
+        return false;
+    }
+    return true;
+}

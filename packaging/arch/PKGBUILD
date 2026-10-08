@@ -1,7 +1,7 @@
 # Maintainer: openOODA-tools <ops@openooda.org>
 pkgname=oocpio-bin
 _pkgname=oocpio
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Initramfs cpio format unpacker and archiver for Linux kernel boot images."
 arch=('x86_64')

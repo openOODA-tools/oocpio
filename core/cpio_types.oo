@@ -1,0 +1,107 @@
+// # oocpio Core Data Types
+//
+// Logline: Data structures representing SVR4 newc CPIO archive headers, file records, and execution configs.
+//
+// Setup: Imported by cpio_engine, cpio_ops, cpio_demo, renderers, and CLI/MCP harnesses.
+//
+// Beats:
+//   1. Declare CpioEntry representing a single archived file with SVR4 metadata.
+//   2. Declare CpioConfig representing parsed CLI flags and operational modes.
+//   3. Declare CpioArchiveSummary holding parsed archive statistics and entry lists.
+//   4. Provide helper initializers for configs, entries, and summary records.
+
+type CpioEntry = struct {
+    magic: String,
+    ino: Int,
+    mode: Int,
+    uid: Int,
+    gid: Int,
+    nlink: Int,
+    mtime: Int,
+    filesize: Int,
+    dev_maj: Int,
+    dev_min: Int,
+    rdev_maj: Int,
+    rdev_min: Int,
+    name: String,
+    data: String
+};
+
+type CpioConfig = struct {
+    mode: String,
+    format: String,
+    make_dirs: Bool,
+    unconditional: Bool,
+    verbose: Bool,
+    preserve_mtime: Bool,
+    archive_file: String,
+    target_dir: String,
+    json_output: Bool,
+    demo_mode: Bool,
+    theme: String,
+    patterns: List[String]
+};
+
+type CpioArchiveSummary = struct {
+    total_entries: Int,
+    total_files: Int,
+    total_dirs: Int,
+    total_bytes: Int,
+    format: String,
+    entries: List[CpioEntry]
+};
+
+pub fn default_cpio_config() -> CpioConfig {
+    return CpioConfig {
+        mode: "list",
+        format: "newc",
+        make_dirs: false,
+        unconditional: false,
+        verbose: false,
+        preserve_mtime: false,
+        archive_file: "",
+        target_dir: ".",
+        json_output: false,
+        demo_mode: false,
+        theme: "default",
+        patterns: list_new()
+    };
+}
+
+pub fn empty_archive_summary() -> CpioArchiveSummary {
+    return CpioArchiveSummary {
+        total_entries: 0,
+        total_files: 0,
+        total_dirs: 0,
+        total_bytes: 0,
+        format: "newc",
+        entries: list_new()
+    };
+}
+
+pub fn make_cpio_entry(
+    name: String,
+    data: String,
+    mode: Int,
+    ino: Int,
+    uid: Int,
+    gid: Int,
+    mtime: Int
+) -> CpioEntry {
+    return CpioEntry {
+        magic: "070701",
+        ino: ino,
+        mode: mode,
+        uid: uid,
+        gid: gid,
+        nlink: 1,
+        mtime: mtime,
+        filesize: chars_len(data),
+        dev_maj: 0,
+        dev_min: 0,
+        rdev_maj: 0,
+        rdev_min: 0,
+        name: name,
+        data: data
+    };
+}

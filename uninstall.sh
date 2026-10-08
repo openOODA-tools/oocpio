@@ -4,7 +4,7 @@
 # "Removes oocpio binary, package installations, and cache."
 #
 # Usage:
-#   curl -fsSL https://openooda-toocpio.github.io/oocpio/uninstall.sh | bash
+#   curl -fsSL https://openooda-tools.github.io/oocpio/uninstall.sh | bash
 #   or: ./uninstall.sh [options]
 #
 # Options:

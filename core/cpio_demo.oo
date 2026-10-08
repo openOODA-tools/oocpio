@@ -1,0 +1,58 @@
+// # oocpio Linux Initramfs Demo Fixtures
+//
+// Logline: Synthetic Linux kernel initramfs archive fixtures demonstrating rootfs unpacking and inspect telemetry.
+//
+// Setup: Standalone generator requiring no external storage access.
+//
+// Beats:
+//   1. Build synthetic CpioEntry fixtures for /init, /bin/sh, /etc/fstab, and system mountpoints.
+//   2. Encode complete SVR4 newc initramfs binary stream with 4-byte padding.
+//   3. Return decoded CpioArchiveSummary for instant CLI demo and MCP testing.
+//   4. Expose initramfs metadata properties.
+
+import "core/cpio_types.oo";
+import "core/cpio_engine.oo";
+
+pub fn build_demo_archive() -> String {
+    let mut stream: String = "";
+
+    // Directory /bin
+    let e1: CpioEntry = make_cpio_entry("bin", "", 16877, 101, 0, 0, 1791331200);
+    stream = stream + encode_cpio_entry(e1);
+
+    // /init script
+    let init_script: String = "#!/bin/sh\n# openOODA Sovereign Initramfs\necho \"[boot] sovereign kernel early-userspace up\"\nexec /bin/sh\n";
+    let e2: CpioEntry = make_cpio_entry("init", init_script, 33261, 102, 0, 0, 1791331200);
+    stream = stream + encode_cpio_entry(e2);
+
+    // /bin/sh
+    let sh_script: String = "#!/bin/sh\nexec /usr/bin/oosh \"$@\"\n";
+    let e3: CpioEntry = make_cpio_entry("bin/sh", sh_script, 33261, 103, 0, 0, 1791331200);
+    stream = stream + encode_cpio_entry(e3);
+
+    // /etc/fstab
+    let fstab: String = "# /etc/fstab: static file system information\nnone /proc proc defaults 0 0\nnone /sys sysfs defaults 0 0\n";
+    let e4: CpioEntry = make_cpio_entry("etc/fstab", fstab, 33188, 104, 0, 0, 1791331200);
+    stream = stream + encode_cpio_entry(e4);
+
+    // /etc/os-release
+    let osrel: String = "NAME=\"openOODA Linux\"\nID=openooda\nVERSION_ID=\"0.2.0\"\nPRETTY_NAME=\"openOODA Sovereign System\"\n";
+    let e5: CpioEntry = make_cpio_entry("etc/os-release", osrel, 33188, 105, 0, 0, 1791331200);
+    stream = stream + encode_cpio_entry(e5);
+
+    // /proc directory
+    let e6: CpioEntry = make_cpio_entry("proc", "", 16877, 106, 0, 0, 1791331200);
+    stream = stream + encode_cpio_entry(e6);
+
+    // /sys directory
+    let e7: CpioEntry = make_cpio_entry("sys", "", 16877, 107, 0, 0, 1791331200);
+    stream = stream + encode_cpio_entry(e7);
+
+    stream = stream + encode_trailer();
+    return stream;
+}
+
+pub fn build_demo_summary() -> CpioArchiveSummary {
+    let raw: String = build_demo_archive();
+    return decode_cpio_stream(raw);
+}

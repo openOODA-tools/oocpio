@@ -1,0 +1,98 @@
+// # oocpio IPC Verification Anchor
+//
+// Logline: Deterministic unit tests verifying CLI argument parsing, JSON field extraction, and MCP serialization.
+//
+// Setup: Pure test execution verifying IPC and MCP contracts.
+//
+// Beats:
+//   1. Verify JSON escaping and field extractions.
+//   2. Verify CLI argument parsing for flags, options, and operational modes.
+//   3. Verify MCP initialize and tools/list rendering.
+//   4. Export test harness runner.
+
+import "core/cpio_types.oo";
+import "ipc/json_field.oo";
+import "ipc/cpio_opts.oo";
+import "ipc/mcp_serve.oo";
+
+pub fn test_ipc_json() -> Bool {
+    let raw: String = "SVR4 \"newc\"\nArchive\tFormat";
+    let esc: String = json_escape(raw);
+    if !str_contains(esc, "\\\"") {
+        return false;
+    }
+    let unesc: String = json_unescape(esc);
+    if unesc != raw {
+        return false;
+    }
+    let sample: String = "{\"name\":\"cpio_extract_archive\",\"verbose\":true,\"count\":7}";
+    let name: String = extract_json_str(sample, "name");
+    if name != "cpio_extract_archive" {
+        return false;
+    }
+    let verbose: Bool = extract_json_bool(sample, "verbose", false);
+    if !verbose {
+        return false;
+    }
+    let count: Int = extract_json_int(sample, "count", 0);
+    if count != 7 {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_ipc_cli() -> Bool {
+    let mut args: List[String] = list_new();
+    args = list_push(args, "-idv");
+    args = list_push(args, "-F");
+    args = list_push(args, "initramfs.cpio");
+
+    let p: ParsedCpio = parse_cpio_args(args);
+    if p.config.mode != "extract" {
+        return false;
+    }
+    if !p.config.make_dirs {
+        return false;
+    }
+    if !p.config.verbose {
+        return false;
+    }
+    if p.config.archive_file != "initramfs.cpio" {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_ipc_mcp_init() -> Bool {
+    let init_resp: String = render_mcp_init("\"test-1\"");
+    if !str_contains(init_resp, "\"protocolVersion\":\"2024-11-05\"") {
+        return false;
+    }
+    if !str_contains(init_resp, "\"name\":\"oocpio\"") {
+        return false;
+    }
+    let list_resp: String = render_mcp_tools_list("\"test-2\"");
+    if !str_contains(list_resp, "cpio_list_archive") {
+        return false;
+    }
+    if !str_contains(list_resp, "cpio_extract_archive") {
+        return false;
+    }
+    if !str_contains(list_resp, "cpio_create_archive") {
+        return false;
+    }
+    return true;
+}
+
+pub fn run_ipc_tests() -> Bool {
+    if !test_ipc_json() {
+        return false;
+    }
+    if !test_ipc_cli() {
+        return false;
+    }
+    if !test_ipc_mcp_init() {
+        return false;
+    }
+    return true;
+}
